@@ -9,7 +9,7 @@
     "aliases": ["EWLD"], "lotSize": 1 },
   { "symbol": "WSRIA.SW", "name": "UBS MSCI World Socially Responsible USD (Acc)", "type": "etf", "active": true,
     "isin": "IE00BK72HJ67", "sourceSymbol": "WSRIA", "mic": "XSWX", "exchange": "SIX Swiss Exchange",
-    "exchangeAliases": ["SIX", "SIX Swiss Exchange"], "quoteCurrency": "USD", "tradingViewSymbol": "SIX:WSRIA",
+    "exchangeAliases": ["SIX", "SIX Swiss Exchange"], "quoteCurrency": "CHF", "tradingViewSymbol": "SIX:WSRIA",
     "aliases": ["WSRIA"], "lotSize": 1 },
   { "symbol": "CSPX.L", "name": "iShares Core S&P 500 USD (Acc)", "type": "etf", "active": true,
     "isin": "IE00B5BMR087", "sourceSymbol": "CSPX", "mic": "XLON", "exchange": "London Stock Exchange",

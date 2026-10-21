@@ -4,7 +4,7 @@ export const LISTED_CFD_INSTRUMENTS = JSON.parse(readFileSync(new URL('./listed-
 export const CFD_QUOTE_MAX_AGE_MS = 30 * 60 * 1000;
 export const LISTED_CFD_SUBSCRIPTIONS = [
   ...LISTED_CFD_INSTRUMENTS.map(item => ({ symbol: item.sourceSymbol, mic_code: item.mic })),
-  { symbol: 'EUR/USD' }, { symbol: 'USD/DKK' },
+  { symbol: 'EUR/USD' }, { symbol: 'USD/CHF' }, { symbol: 'USD/DKK' },
 ];
 
 function timeMs(value) {
@@ -87,8 +87,8 @@ export class ListedCfdFeed {
   // so USD conversion can keep working if either upstream is unavailable.
   handleFxTick(symbol, price, timestamp) {
     const key = symbol.replace(/[\/_]/g, '').toUpperCase();
-    if (key !== 'EURUSD' && key !== 'USDDKK') return false;
-    const currency = key === 'EURUSD' ? 'EUR' : 'DKK';
+    if (!['EURUSD', 'USDCHF', 'USDDKK'].includes(key)) return false;
+    const currency = key === 'EURUSD' ? 'EUR' : key.slice(3);
     const rate = key === 'EURUSD' ? Number(price) : 1 / Number(price);
     const tickTime = timeMs(timestamp);
     if (!fresh(rate, tickTime, this.clock())) return true;

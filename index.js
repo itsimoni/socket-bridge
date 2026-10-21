@@ -15,6 +15,7 @@ import dotenv from "dotenv";
 import WebSocket from "ws";
 import { WebSocketServer } from "ws";
 import { LISTED_CFD_INSTRUMENTS, LISTED_CFD_SUBSCRIPTIONS, ListedCfdFeed } from './listed-cfds.js';
+import { YahooCfdFeed } from './yahoo-cfds.js';
 
 dotenv.config();
 
@@ -24,6 +25,10 @@ const PORT = Number(process.env.PORT || 8080);
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || "";
 const TWELVE_DATA_API_KEY = process.env.TWELVE_DATA_API_KEY || "";
+const LISTED_CFD_PROVIDER = (process.env.LISTED_CFD_PROVIDER || 'yahoo').trim().toLowerCase();
+if (!['yahoo', 'twelvedata'].includes(LISTED_CFD_PROVIDER)) {
+  throw new Error('LISTED_CFD_PROVIDER must be yahoo or twelvedata');
+}
 
 const FINNHUB_URL = FINNHUB_API_KEY ? `wss://ws.finnhub.io?token=${FINNHUB_API_KEY}` : null;
 const TWELVE_URL = TWELVE_DATA_API_KEY
@@ -32,6 +37,7 @@ const TWELVE_URL = TWELVE_DATA_API_KEY
 
 console.log("FINNHUB enabled:", Boolean(FINNHUB_URL));
 console.log("TWELVE enabled:", Boolean(TWELVE_URL));
+console.log('Listed CFD provider:', LISTED_CFD_PROVIDER);
 
 const BROADCAST_INTERVAL_MS = 250;
 const MAX_WS_CLIENTS = 5000;
@@ -125,10 +131,16 @@ function fmtTwelveSymbol(raw) {
 // ================== LATEST STORE (no growth) ==================
 const latestBySymbol = new Map();
 const dirtySymbols = new Set();
-const listedCfdFeed = new ListedCfdFeed(quote => {
+const publishListedQuote = quote => {
   latestBySymbol.set(quote.symbol, quote);
   dirtySymbols.add(quote.symbol);
-});
+};
+const listedCfdFeed = new ListedCfdFeed(publishListedQuote);
+const yahooFeed = LISTED_CFD_PROVIDER === 'yahoo' ? new YahooCfdFeed(publishListedQuote, {
+  pollIntervalMs: process.env.YAHOO_POLL_INTERVAL_MS,
+  requestTimeoutMs: process.env.YAHOO_REQUEST_TIMEOUT_MS,
+  baseUrl: process.env.YAHOO_CHART_BASE_URL,
+}) : null;
 
 // Pre-seed so snapshot contains everything
 for (const s of finnhubSymbols) {
@@ -146,7 +158,7 @@ for (const s of twelveSymbols) {
 
 for (const instrument of LISTED_CFD_INSTRUMENTS) {
   latestBySymbol.set(instrument.symbol, { symbol: instrument.symbol, price: null, timestamp: null,
-    currency: 'USD', source: 'twelvedata', isin: instrument.isin });
+    currency: 'USD', source: LISTED_CFD_PROVIDER === 'yahoo' ? 'yahoo' : 'twelvedata', isin: instrument.isin });
 }
 
 // ================== HTTP SERVER ==================
@@ -171,7 +183,9 @@ const server = http.createServer((req, res) => {
       symbolsCached: latestBySymbol.size,
       finnhub: finnhubState(),
       twelve: twelveState(),
-      listedCfds: listedCfdFeed.status(),
+      listedCfdProvider: LISTED_CFD_PROVIDER,
+      yahoo: yahooFeed?.health() ?? { enabled: false },
+      listedCfds: yahooFeed ? yahooFeed.status() : listedCfdFeed.status(),
       time: new Date().toISOString()
     }));
     return;
@@ -390,7 +404,7 @@ function connectFinnhub() {
 
         latestBySymbol.set(key, val);
         dirtySymbols.add(key);
-        listedCfdFeed.handleFxTick(key, price, t.t);
+        if (!yahooFeed) listedCfdFeed.handleFxTick(key, price, t.t);
       }
     } catch {}
   });
@@ -502,7 +516,7 @@ function connectTwelve() {
 
     console.log(`✅ Twelve subscribed (${twelveSymbols.length} symbols, ${batches.length} batches)`);
 
-    twelveWS.send(JSON.stringify({ action: 'subscribe', params: { symbols: LISTED_CFD_SUBSCRIPTIONS } }));
+    if (!yahooFeed) twelveWS.send(JSON.stringify({ action: 'subscribe', params: { symbols: LISTED_CFD_SUBSCRIPTIONS } }));
 
     if (twelveHeartbeatInterval) clearInterval(twelveHeartbeatInterval);
     twelveHeartbeatInterval = setInterval(() => {
@@ -517,14 +531,16 @@ function connectTwelve() {
       const msg = JSON.parse(buf.toString());
 
       if (msg?.event === "subscribe-status") {
-        listedCfdFeed.handleSubscriptionStatus(msg);
+        if (!yahooFeed) listedCfdFeed.handleSubscriptionStatus(msg);
         console.log("TWELVE MSG:", msg);
         return;
       }
 
       if (msg?.event !== "price") return;
 
-      const handledListing = listedCfdFeed.handleTick(msg);
+      const handledListing = yahooFeed
+        ? LISTED_CFD_INSTRUMENTS.some(instrument => instrument.sourceSymbol === msg.symbol)
+        : listedCfdFeed.handleTick(msg);
       if (handledListing && !msg.symbol.includes('/')) return;
 
       const key = fmtTwelveSymbol(msg.symbol).replaceAll('/', '');
@@ -564,6 +580,7 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`🚀 Server on ${PORT}`);
   if (FINNHUB_URL) connectFinnhub();
   if (TWELVE_URL) connectTwelve();
+  yahooFeed?.start();
 });
 
 setInterval(() => {

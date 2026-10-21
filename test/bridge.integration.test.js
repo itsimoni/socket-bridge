@@ -47,7 +47,7 @@ test('VPS bridge relays exchange-qualified USD quotes, snapshots and live update
       if (message.action !== 'subscribe' || !Array.isArray(message.params.symbols)) return;
       extendedSubscription = message.params.symbols;
       socket.send(JSON.stringify({ event: 'subscribe-status', success: extendedSubscription, fails: [] }));
-      for (const [symbol, price] of [['EUR/USD', 1.1], ['USD/DKK', 8]]) {
+      for (const [symbol, price] of [['EUR/USD', 1.1], ['USD/CHF', 0.8], ['USD/DKK', 8]]) {
         socket.send(JSON.stringify({ event: 'price', symbol, price, timestamp }));
       }
       for (const listing of LISTED_CFD_INSTRUMENTS) {
@@ -60,6 +60,7 @@ test('VPS bridge relays exchange-qualified USD quotes, snapshots and live update
   const child = spawn(process.execPath, ['index.js'], {
     cwd: fileURLToPath(new URL('../', import.meta.url)), windowsHide: true,
     env: { ...process.env, PORT: String(port), FINNHUB_API_KEY: '', TWELVE_DATA_API_KEY: 'integration-test',
+      LISTED_CFD_PROVIDER: 'twelvedata',
       TWELVE_DATA_WS_URL: `ws://127.0.0.1:${upstream.address().port}` },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -91,12 +92,13 @@ test('VPS bridge relays exchange-qualified USD quotes, snapshots and live update
   assert.equal(quote?.price, 44, logs.slice(-1500));
   assert.equal(quote.currency, 'USD');
   assert.equal(quote.timestamp, new Date(timestamp * 1000).toISOString());
-  assert.equal(extendedSubscription.length, 7);
+  assert.equal(extendedSubscription.length, 8);
   assert.ok(extendedSubscription.some(item => item.symbol === 'IWDA' && item.mic_code === 'XLON'));
   const snapshot = await (await fetch(`${baseUrl}/snapshot`)).json();
   assert.equal(snapshot['NOVO-B.CO'].price, 50);
   assert.equal(snapshot['CSPX.L'].price, 40);
   assert.equal(snapshot['WSRIA.SW'].isin, 'IE00BK72HJ67');
+  assert.equal(snapshot['WSRIA.SW'].price, 50);
 
   for (let index = 0; index < 2; index++) {
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);

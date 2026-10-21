@@ -7,8 +7,8 @@ const seconds = now / 1000;
 const tick = (symbol, mic_code, price, currency, overrides = {}) =>
   ({ symbol, mic_code, price, currency, timestamp: seconds, ...overrides });
 
-test('subscriptions identify the five exact exchanges and both FX dependencies', () => {
-  assert.equal(LISTED_CFD_SUBSCRIPTIONS.length, 7);
+test('subscriptions identify the five exact exchanges and all three FX dependencies', () => {
+  assert.equal(LISTED_CFD_SUBSCRIPTIONS.length, 8);
   for (const listing of LISTED_CFD_INSTRUMENTS) {
     assert.ok(LISTED_CFD_SUBSCRIPTIONS.some(item => item.symbol === listing.sourceSymbol && item.mic_code === listing.mic));
   }
@@ -30,6 +30,10 @@ test('equity and FX events publish USD prices and revalue when FX changes', () =
   feed.handleTick({ symbol: 'USD/DKK', price: 8, timestamp: seconds });
   assert.equal(published.at(-1).price, 50);
   assert.equal(published.at(-1).symbol, 'NOVO-B.CO');
+  feed.handleTick(tick('WSRIA', 'XSWX', 20, 'CHF'));
+  feed.handleFxTick('USDCHF', 0.8, now);
+  assert.equal(published.at(-1).symbol, 'WSRIA.SW');
+  assert.equal(published.at(-1).price, 25);
 });
 
 test('wrong venues/currencies, stale FX and out-of-order ticks cannot replace valid quotes', () => {
