@@ -1,0 +1,22 @@
+[
+  { "symbol": "IWDA.L", "name": "iShares Core MSCI World USD (Acc)", "type": "etf", "active": true,
+    "isin": "IE00B4L5Y983", "sourceSymbol": "IWDA", "mic": "XLON", "exchange": "London Stock Exchange",
+    "exchangeAliases": ["LSE", "London Stock Exchange"], "quoteCurrency": "USD", "tradingViewSymbol": "LSE:IWDA",
+    "aliases": ["IWDA", "EUNL", "SWDA"], "lotSize": 1 },
+  { "symbol": "EWLD.PA", "name": "Amundi MSCI World Swap EUR (Dist)", "type": "etf", "active": true,
+    "isin": "LU2655993207", "sourceSymbol": "EWLD", "mic": "XPAR", "exchange": "Euronext Paris",
+    "exchangeAliases": ["Euronext Paris"], "quoteCurrency": "EUR", "tradingViewSymbol": "EURONEXT:EWLD",
+    "aliases": ["EWLD"], "lotSize": 1 },
+  { "symbol": "WSRIA.SW", "name": "UBS MSCI World Socially Responsible USD (Acc)", "type": "etf", "active": true,
+    "isin": "IE00BK72HJ67", "sourceSymbol": "WSRIA", "mic": "XSWX", "exchange": "SIX Swiss Exchange",
+    "exchangeAliases": ["SIX", "SIX Swiss Exchange"], "quoteCurrency": "USD", "tradingViewSymbol": "SIX:WSRIA",
+    "aliases": ["WSRIA"], "lotSize": 1 },
+  { "symbol": "CSPX.L", "name": "iShares Core S&P 500 USD (Acc)", "type": "etf", "active": true,
+    "isin": "IE00B5BMR087", "sourceSymbol": "CSPX", "mic": "XLON", "exchange": "London Stock Exchange",
+    "exchangeAliases": ["LSE", "London Stock Exchange"], "quoteCurrency": "USD", "tradingViewSymbol": "LSE:CSPX",
+    "aliases": ["CSPX", "SXR8", "CSP1"], "lotSize": 1 },
+  { "symbol": "NOVO-B.CO", "name": "Novo Nordisk B", "type": "stock", "active": true,
+    "isin": "DK0062498333", "sourceSymbol": "NOVO-B", "mic": "XCSE", "exchange": "Nasdaq Copenhagen",
+    "exchangeAliases": ["OMXC", "Copenhagen", "Nasdaq Copenhagen"], "quoteCurrency": "DKK", "tradingViewSymbol": "OMXCOP:NOVO_B",
+    "aliases": ["NOVO-B", "NOV"], "lotSize": 1 }
+]

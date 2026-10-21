@@ -1,0 +1,288 @@
+import http from "http";
+import WebSocket, { WebSocketServer } from "ws";
+import dotenv from "dotenv";
+
+dotenv.config();
+
+console.log("🚀 Starting WebSocket Bridge Server (NO Supabase)...");
+
+// ====== Configuration ======
+const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY;
+if (!FINNHUB_API_KEY) throw new Error("Missing FINNHUB_API_KEY in .env");
+
+const FINNHUB_URL = `wss://ws.finnhub.io?token=${FINNHUB_API_KEY}`;
+const PORT = process.env.PORT || 8080;
+
+// ====== Store connected clients ======
+const clients = new Set();
+
+// ====== In-memory storage ======
+/**
+ * key: formatted symbol like "EUR/USD"
+ * value: { symbol, price, volume, timestamp }
+ */
+const latestBySymbol = new Map();
+
+// ====== All 89 symbols ======
+const symbols = [
+  // Commodities
+  "OANDA:XAG_USD", "OANDA:NATGAS_USD", "OANDA:BCO_USD", "OANDA:WTICO_USD",
+  "OANDA:XPT_USD", "OANDA:XAU_USD", "OANDA:XPD_USD", "OANDA:CORN_USD",
+  "OANDA:WHEAT_USD", "OANDA:SOYBN_USD", "OANDA:SUGAR_USD", "OANDA:COFFEE_USD",
+  "OANDA:COTTON_USD", "OANDA:COCOA_USD",
+
+  // Forex - Majors
+  "OANDA:EUR_USD", "OANDA:GBP_USD", "OANDA:AUD_USD", "OANDA:NZD_USD",
+  "OANDA:USD_JPY", "OANDA:USD_CHF", "OANDA:USD_CAD",
+
+  // Minors / Crosses
+  "OANDA:EUR_GBP", "OANDA:EUR_JPY", "OANDA:EUR_AUD", "OANDA:EUR_CHF", "OANDA:EUR_CAD", "OANDA:EUR_NZD",
+  "OANDA:GBP_JPY", "OANDA:GBP_CHF", "OANDA:GBP_AUD", "OANDA:GBP_CAD", "OANDA:GBP_NZD",
+  "OANDA:AUD_JPY", "OANDA:AUD_CHF", "OANDA:AUD_CAD", "OANDA:AUD_NZD",
+  "OANDA:NZD_JPY", "OANDA:NZD_CHF", "OANDA:NZD_CAD",
+  "OANDA:CAD_JPY", "OANDA:CAD_CHF",
+  "OANDA:CHF_JPY",
+
+  // Popular Exotics
+  "OANDA:USD_CNH", "OANDA:USD_HKD", "OANDA:USD_SGD", "OANDA:USD_THB",
+  "OANDA:USD_ZAR", "OANDA:USD_MXN", "OANDA:USD_TRY", "OANDA:USD_PLN",
+  "OANDA:USD_HUF", "OANDA:USD_CZK", "OANDA:USD_DKK", "OANDA:USD_NOK",
+  "OANDA:USD_SEK", "OANDA:USD_RUB",
+
+  // Asia & Pacific
+  "OANDA:SGD_JPY", "OANDA:CNH_JPY", "OANDA:HKD_JPY",
+  "OANDA:AUD_SGD", "OANDA:AUD_HKD", "OANDA:AUD_CNH",
+  "OANDA:NZD_SGD", "OANDA:USD_TWD", "OANDA:USD_KRW", "OANDA:USD_INR",
+
+  // Scandinavia & Europe
+  "OANDA:EUR_SEK", "OANDA:EUR_NOK", "OANDA:EUR_DKK",
+  "OANDA:GBP_NOK", "OANDA:GBP_SEK",
+  "OANDA:NOK_SEK",
+  "OANDA:EUR_PLN", "OANDA:EUR_CZK", "OANDA:EUR_HUF",
+
+  // Middle East
+  "OANDA:USD_SAR", "OANDA:USD_AED", "OANDA:USD_QAR",
+  "OANDA:USD_ILS", "OANDA:EUR_ILS",
+
+  // Latin America
+  "OANDA:EUR_MXN", "OANDA:GBP_MXN", "OANDA:AUD_MXN",
+  "OANDA:USD_CLP", "OANDA:USD_COP", "OANDA:USD_PEN",
+
+  // Africa
+  "OANDA:EUR_ZAR", "OANDA:GBP_ZAR", "OANDA:AUD_ZAR"
+];
+
+function formatSymbol(raw) {
+  // Only replace the first "_" to make "EUR_USD" -> "EUR/USD"
+  return raw.replace("OANDA:", "").replace("_", "/");
+}
+
+// ====== HTTP Server ======
+const server = http.createServer((req, res) => {
+  // CORS
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
+  const url = new URL(req.url, `http://${req.headers.host}`);
+
+  if (url.pathname === "/health") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      status: "ok",
+      connectedClients: clients.size,
+      cachedSymbols: latestBySymbol.size,
+      timestamp: new Date().toISOString()
+    }));
+    return;
+  }
+
+  if (url.pathname === "/snapshot") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(Object.fromEntries(latestBySymbol.entries())));
+    return;
+  }
+
+  if (url.pathname === "/latest") {
+    const symbol = url.searchParams.get("symbol");
+    if (!symbol) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Missing ?symbol=" }));
+      return;
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ symbol, data: latestBySymbol.get(symbol) || null }));
+    return;
+  }
+
+  if (url.pathname === "/latest-batch") {
+    const symbolsParam = url.searchParams.get("symbols") || "";
+    const list = symbolsParam.split(",").map(s => s.trim()).filter(Boolean);
+
+    const out = {};
+    for (const s of list) out[s] = latestBySymbol.get(s) || null;
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(out));
+    return;
+  }
+
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("WebSocket Bridge Server Running (NO Supabase)\nTry /health or /snapshot\n");
+});
+
+// ====== WebSocket Server for Clients ======
+const wss = new WebSocketServer({
+  server,
+  perMessageDeflate: false
+});
+
+wss.on("connection", (ws, req) => {
+  console.log("✅ WebSocket client connected from:", req.socket.remoteAddress);
+  clients.add(ws);
+
+  // Send welcome + snapshot
+  ws.send(JSON.stringify({
+    type: "connected",
+    message: "Connected to Finnhub WebSocket Bridge (NO Supabase)",
+    symbols: symbols.length,
+    timestamp: new Date().toISOString()
+  }));
+
+  ws.send(JSON.stringify({
+    type: "snapshot",
+    data: Object.fromEntries(latestBySymbol.entries()),
+    timestamp: new Date().toISOString()
+  }));
+
+  ws.on("close", () => {
+    clients.delete(ws);
+    console.log("🔌 Client disconnected. Total:", clients.size);
+  });
+
+  ws.on("error", (err) => {
+    console.error("Client WebSocket error:", err.message);
+    clients.delete(ws);
+  });
+});
+
+// ====== Broadcast Throttle ======
+let broadcastScheduled = false;
+function scheduleBroadcast() {
+  if (broadcastScheduled) return;
+  broadcastScheduled = true;
+
+  setTimeout(() => {
+    broadcastScheduled = false;
+
+    const payload = JSON.stringify({
+      type: "price_update",
+      data: Object.fromEntries(latestBySymbol.entries()),
+      timestamp: new Date().toISOString()
+    });
+
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) client.send(payload);
+    }
+  }, 250); // 4 updates/second
+}
+
+// ====== Finnhub Connection with Exponential Backoff ======
+let reconnectDelayMs = 2000;        // start 2s
+const reconnectDelayMaxMs = 60000;  // cap 60s
+
+function resetBackoff() {
+  reconnectDelayMs = 2000;
+}
+
+function scheduleReconnect(reason = "unknown") {
+  const jitter = Math.floor(Math.random() * 500); // 0-500ms
+  const wait = reconnectDelayMs + jitter;
+
+  console.log(`⚠️ Finnhub reconnect scheduled in ${wait}ms (reason: ${reason})`);
+
+  reconnectDelayMs = Math.min(reconnectDelayMs * 2, reconnectDelayMaxMs);
+
+  setTimeout(() => {
+    connectToFinnhub();
+  }, wait);
+}
+
+function connectToFinnhub() {
+  console.log("🔌 Connecting to Finnhub...");
+  const finnhubWS = new WebSocket(FINNHUB_URL, { handshakeTimeout: 10000 });
+
+  finnhubWS.on("open", () => {
+    console.log("✅ Connected to Finnhub");
+    resetBackoff();
+
+    for (const symbol of symbols) {
+      finnhubWS.send(JSON.stringify({ type: "subscribe", symbol }));
+    }
+    console.log(`📡 Subscribed to ${symbols.length} symbols`);
+  });
+
+  finnhubWS.on("message", (raw) => {
+    let message;
+    try {
+      message = JSON.parse(raw.toString());
+    } catch {
+      return;
+    }
+
+    if (message.type === "trade" && Array.isArray(message.data)) {
+      // Update in-memory storage with latest tick per symbol
+      for (const trade of message.data) {
+        const sym = formatSymbol(trade.s);
+        latestBySymbol.set(sym, {
+          symbol: sym,
+          price: trade.p,
+          volume: trade.v,
+          timestamp: new Date(trade.t).toISOString()
+        });
+      }
+
+      // Broadcast (throttled)
+      scheduleBroadcast();
+    }
+  });
+
+  finnhubWS.on("close", (code, reason) => {
+    const r = reason?.toString() || "";
+    console.log(`🔌 Finnhub connection closed (code ${code}) ${r}`);
+    scheduleReconnect(`close_${code}`);
+  });
+
+  finnhubWS.on("error", (err) => {
+    console.error("❌ Finnhub error:", err.message);
+    try { finnhubWS.close(); } catch {}
+  });
+}
+
+// ====== Start Server ======
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 Server listening on port ${PORT}`);
+  console.log(`🌐 HTTP: http://YOUR_SERVER_IP:${PORT}/health`);
+  console.log(`🔌 WS: ws://YOUR_SERVER_IP:${PORT}`);
+  connectToFinnhub();
+});
+
+// ====== Health Log ======
+setInterval(() => {
+  console.log(`❤️ Health - Clients: ${clients.size}, Cached: ${latestBySymbol.size}, Time: ${new Date().toISOString()}`);
+}, 30000);
+
+// ====== Error Handlers ======
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
