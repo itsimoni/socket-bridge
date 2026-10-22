@@ -59,8 +59,9 @@ test('stale securities, bad native currencies and stale/missing FX never publish
       fetch: async url => {
         const symbol = yahooSymbolFromUrl(url);
         if (mode === 'missing-fx' && symbol === 'CHFUSD=X') return new Response(null, { status: 404 });
-        const stale = mode === 'stale-security' && symbol === 'WSRIA.SW' || mode === 'stale-fx' && symbol === 'CHFUSD=X';
-        return Response.json(yahooPayload(symbol, stale ? seconds - 1801 : seconds,
+        const age = mode === 'stale-security' && symbol === 'WSRIA.SW' ? 86_401
+          : mode === 'stale-fx' && symbol === 'CHFUSD=X' ? 1801 : 0;
+        return Response.json(yahooPayload(symbol, seconds - age,
           mode === 'bad-currency' && symbol === 'WSRIA.SW' ? { currency: 'USD' } : {}));
       } });
     await feed.poll();
@@ -68,6 +69,24 @@ test('stale securities, bad native currencies and stale/missing FX never publish
     assert.ok(!published.some(quote => quote.symbol === 'WSRIA.SW'), mode);
     assert.ok(feed.status().find(item => item.symbol === 'WSRIA.SW').error, mode);
   }
+});
+
+test('Yahoo publishes a six-hour-old WSRIA trade with current FX and retains its source timestamp', async () => {
+  const published = [];
+  const feed = new YahooCfdFeed(quote => published.push(quote), { clock: () => now,
+    fetch: async url => {
+      const symbol = yahooSymbolFromUrl(url);
+      const old = ['WSRIA.SW', 'IWDA.L'].includes(symbol);
+      return Response.json(yahooPayload(symbol, old ? seconds - 21_600 : seconds));
+    } });
+  await feed.poll();
+  assert.equal(published.length, 4);
+  assert.ok(!published.some(quote => quote.symbol === 'IWDA.L'));
+  const quote = published.find(quote => quote.symbol === 'WSRIA.SW');
+  assert.equal(quote.price, 25);
+  assert.equal(quote.timestamp, new Date(now - 21_600_000).toISOString());
+  assert.equal(quote.source_timestamp, quote.timestamp);
+  assert.equal(feed.status().find(item => item.symbol === 'WSRIA.SW').error, null);
 });
 
 test('invalid/out-of-order responses preserve the last verified quote and source timestamp', async () => {

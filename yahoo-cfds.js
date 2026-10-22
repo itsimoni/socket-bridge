@@ -1,4 +1,4 @@
-import { LISTED_CFD_INSTRUMENTS, CFD_QUOTE_MAX_AGE_MS, toUsdCfdQuote } from './listed-cfds.js';
+import { LISTED_CFD_INSTRUMENTS, CFD_QUOTE_MAX_AGE_MS, getCfdQuoteMaxAgeMs, toUsdCfdQuote } from './listed-cfds.js';
 
 const EXCHANGES = { XLON: 'LSE', XPAR: 'PAR', XSWX: 'EBS', XCSE: 'CPH' };
 const FX_REQUESTS = ['EUR', 'CHF', 'DKK'].map(currency => ({
@@ -206,7 +206,7 @@ export class YahooCfdFeed {
       const published = this.published.get(instrument.symbol);
       let error = this.failures.get(instrument.symbol) ?? null;
       if (!error && native) {
-        if (this.clock() - native.timestamp > CFD_QUOTE_MAX_AGE_MS) error = 'Yahoo source quote is stale';
+        if (this.clock() - native.timestamp > getCfdQuoteMaxAgeMs(instrument.symbol)) error = 'Yahoo source quote is stale';
         else if (instrument.quoteCurrency !== 'USD') {
           const fx = this.fxQuotes.get(instrument.quoteCurrency);
           if (!fx || this.clock() - fx.timestamp > CFD_QUOTE_MAX_AGE_MS) error = 'Yahoo FX quote is missing or stale';

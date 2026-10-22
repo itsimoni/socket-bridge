@@ -52,6 +52,23 @@ test('wrong venues/currencies, stale FX and out-of-order ticks cannot replace va
   assert.equal(published.length, 1);
 });
 
+test('WSRIA accepts an older exchange tick within 24 hours but still requires current CHF FX', () => {
+  const published = [];
+  const feed = new ListedCfdFeed(quote => published.push(quote), () => now);
+  feed.handleTick(tick('WSRIA', 'XSWX', 20, 'CHF', { timestamp: seconds - 21_600 }));
+  feed.handleFxTick('USDCHF', 0.8, now - 1_800_001);
+  assert.equal(published.length, 0);
+  feed.handleFxTick('USDCHF', 0.8, now);
+  assert.equal(published.at(-1).price, 25);
+  assert.equal(published.at(-1).timestamp, new Date(now - 21_600_000).toISOString());
+  feed.handleTick(tick('IWDA', 'XLON', 100, 'USD', { timestamp: seconds - 21_600 }));
+  assert.equal(published.length, 1);
+  const expired = new ListedCfdFeed(quote => published.push(quote), () => now);
+  expired.handleFxTick('USDCHF', 0.8, now);
+  expired.handleTick(tick('WSRIA', 'XSWX', 20, 'CHF', { timestamp: seconds - 86_401 }));
+  assert.equal(published.length, 1);
+});
+
 test('venue-less events require a confirmed subscription; reconnect clears confirmation', () => {
   const published = [];
   const feed = new ListedCfdFeed(quote => published.push(quote), () => now);

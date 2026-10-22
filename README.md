@@ -66,8 +66,10 @@ Yahoo supplies regular-market last prices through an unofficial HTTP endpoint,
 not a guaranteed real-time or bid/ask feed. Responses must match the expected
 symbol, exchange, instrument type and quote currency. The bridge uses
 `regularMarketTime`, not the fetch time, candle date or adjusted close. If a
-security or its FX is older than 30 minutes, it publishes no replacement USD
-quote. `/health` reports the stale/missing source; existing cached prices keep
+security exceeds its catalog age limit, or its FX is older than 30 minutes, it
+publishes no replacement USD quote. WSRIA permits a last trade up to 24 hours
+old; the other four securities retain the 30-minute limit. `/health` reports
+the stale/missing source; existing cached prices keep
 their original time and the application/database freshness checks still apply.
 Polling every minute does not make a delayed or illiquid listing's price fresh.
 
@@ -119,6 +121,10 @@ database mirror, instrument and stale-quote checks.
 
 The existing TradingView chart remains independent. It displays the underlying
 exchange chart; this service supplies Valore's order/valuation prices.
+The frontend also shows explicitly labelled simulated depth/trade panels for
+the five CFDs. Those rows are generated only in the browser around a positive
+USD reference quote; they are not supplied by Yahoo or this bridge, stored in
+the database, or used for order execution.
 
 Provider protocol: [Twelve Data streaming guide](https://support.twelvedata.com/en/articles/5620516-how-to-stream-the-data),
 [official SDK subscription/event types](https://github.com/twelvedata/twelvedata-go/tree/main/twelvedata/ws).

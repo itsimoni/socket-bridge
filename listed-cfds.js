@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 
 export const LISTED_CFD_INSTRUMENTS = JSON.parse(readFileSync(new URL('./listed-cfd-instruments.json', import.meta.url), 'utf8'));
 export const CFD_QUOTE_MAX_AGE_MS = 30 * 60 * 1000;
+export const getCfdQuoteMaxAgeMs = symbol =>
+  LISTED_CFD_INSTRUMENTS.find(instrument => instrument.symbol === symbol)?.quoteMaxAgeMs ?? CFD_QUOTE_MAX_AGE_MS;
 export const LISTED_CFD_SUBSCRIPTIONS = [
   ...LISTED_CFD_INSTRUMENTS.map(item => ({ symbol: item.sourceSymbol, mic_code: item.mic })),
   { symbol: 'EUR/USD' }, { symbol: 'USD/CHF' }, { symbol: 'USD/DKK' },
@@ -13,9 +15,9 @@ function timeMs(value) {
   return typeof value === 'string' ? Date.parse(value) : NaN;
 }
 
-function fresh(price, timestamp, now) {
+function fresh(price, timestamp, now, maxAgeMs = CFD_QUOTE_MAX_AGE_MS) {
   return Number.isFinite(price) && price > 0 && Number.isFinite(timestamp) && timestamp > 0 &&
-    timestamp <= now + 60_000 && now - timestamp <= CFD_QUOTE_MAX_AGE_MS;
+    timestamp <= now + 60_000 && now - timestamp <= maxAgeMs;
 }
 
 // Conversion happens only here, on the VPS. Both the browser and Supabase
@@ -27,7 +29,7 @@ export function toUsdCfdQuote(instrument, quote, fx, now = Date.now()) {
   }
   const sourcePrice = Number(quote.close);
   const quoteTime = timeMs(quote.timestamp);
-  if (!fresh(sourcePrice, quoteTime, now)) throw new Error(`Missing, invalid or stale quote for ${instrument.symbol}`);
+  if (!fresh(sourcePrice, quoteTime, now, getCfdQuoteMaxAgeMs(instrument.symbol))) throw new Error(`Missing, invalid or stale quote for ${instrument.symbol}`);
   let rate = 1;
   let timestamp = quoteTime;
   if (instrument.quoteCurrency !== 'USD') {
@@ -108,7 +110,7 @@ export class ListedCfdFeed {
         (data.isin && data.isin !== instrument.isin)) return true;
     const timestamp = timeMs(data.timestamp);
     const price = Number(data.price);
-    if (!fresh(price, timestamp, this.clock())) return true;
+    if (!fresh(price, timestamp, this.clock(), getCfdQuoteMaxAgeMs(instrument.symbol))) return true;
     const previous = this.nativeQuotes.get(instrument.symbol);
     if (previous && timestamp < previous.timestamp) return true;
     this.nativeQuotes.set(instrument.symbol, { symbol: instrument.sourceSymbol, mic_code: instrument.mic,
